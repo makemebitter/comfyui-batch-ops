@@ -51,10 +51,13 @@ def _natural_sort_key(path):
 
 
 def get_sorted_image_paths(directory, pattern='*'):
+    # normpath first so UNC paths (//server/share) are handled correctly
+    # by glob.escape (which can mangle raw UNC prefixes)
+    directory = os.path.normpath(directory)
     paths = []
     for file_name in glob.glob(os.path.join(glob.escape(directory), pattern), recursive=True):
         if file_name.lower().endswith(ALLOWED_EXT):
-            paths.append(os.path.abspath(file_name))
+            paths.append(os.path.normpath(file_name))
     paths.sort(key=_natural_sort_key)
     return paths
 

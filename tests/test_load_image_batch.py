@@ -80,6 +80,18 @@ class TestGetSortedImagePaths:
         finally:
             shutil.rmtree(d)
 
+    def test_forward_slash_paths(self, image_dir):
+        """Forward-slash paths (including UNC-style) should work."""
+        fwd = image_dir.replace(os.sep, '/')
+        paths = get_sorted_image_paths(fwd)
+        assert len(paths) == 5
+
+    def test_normpath_applied(self, image_dir):
+        """Paths with redundant separators or dots should be normalized."""
+        messy = os.path.join(image_dir, '.', '')
+        paths = get_sorted_image_paths(messy)
+        assert len(paths) == 5
+
     def test_ignores_non_image_files(self):
         d = tempfile.mkdtemp()
         try:
