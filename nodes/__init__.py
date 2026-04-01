@@ -5,5 +5,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BatchOps_LoadImageBatch": "Load Image Batch",
+    "BatchOps_LoadImageBatch": "Image Batch Runner",
 }
