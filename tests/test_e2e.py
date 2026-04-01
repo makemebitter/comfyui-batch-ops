@@ -21,7 +21,7 @@ def build_workflow(image_dir, mode="index", index=0, batch_id="e2e_test"):
     """Build a minimal ComfyUI workflow that runs Load Image Batch."""
     return {
         "1": {
-            "class_type": "Load Image Batch",
+            "class_type": "BatchOps_LoadImageBatch",
             "inputs": {
                 "path": image_dir,
                 "pattern": "*",
@@ -114,7 +114,7 @@ def test_node_registered(base_url):
     try:
         with urllib.request.urlopen(req) as resp:
             info = json.loads(resp.read())
-        if "Load Image Batch" in info:
+        if "BatchOps_LoadImageBatch" in info:
             print("PASS")
             return True
         else:

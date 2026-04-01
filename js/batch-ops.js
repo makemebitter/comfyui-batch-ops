@@ -22,7 +22,7 @@ api.addEventListener("batch-ops-add-queue", () => {
 app.registerExtension({
     name: "BatchOps.LoadImageBatch",
     nodeCreated(node) {
-        if (node.comfyClass !== "Load Image Batch") return;
+        if (node.comfyClass !== "BatchOps_LoadImageBatch") return;
 
         const modeWidget = node.widgets.find((w) => w.name === "mode");
         const indexWidget = node.widgets.find((w) => w.name === "index");
