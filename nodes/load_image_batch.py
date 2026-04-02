@@ -89,7 +89,7 @@ class LoadImageBatch:
         return {
             "required": {
                 "path": ("STRING", {"default": '', "multiline": False}),
-                "filename_filter": ("STRING", {"default": '*', "multiline": False}),
+                "filename_filter": ("STRING", {"default": '*.*', "multiline": False}),
                 "auto_queue": ("BOOLEAN", {"default": False}),
                 "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1}),
                 "include_extension": ("BOOLEAN", {"default": True}),
