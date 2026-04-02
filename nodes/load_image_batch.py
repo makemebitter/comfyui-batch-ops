@@ -56,12 +56,12 @@ def _natural_sort_key(path):
     return [int(p) if p.isdigit() else p for p in parts]
 
 
-def get_sorted_image_paths(directory, filename_filter='*'):
+def get_sorted_image_paths(directory, image_filter='*'):
     # normpath first so UNC paths (//server/share) are handled correctly
     # by glob.escape (which can mangle raw UNC prefixes)
     directory = os.path.normpath(directory)
     paths = []
-    for file_name in glob.glob(os.path.join(glob.escape(directory), filename_filter), recursive=True):
+    for file_name in glob.glob(os.path.join(glob.escape(directory), image_filter), recursive=True):
         if file_name.lower().endswith(ALLOWED_EXT):
             paths.append(os.path.normpath(file_name))
     paths.sort(key=_natural_sort_key)
@@ -88,11 +88,11 @@ class LoadImageBatch:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "path": ("STRING", {"default": '', "multiline": False}),
-                "filename_filter": ("STRING", {"default": '*.*', "multiline": False}),
-                "auto_queue": ("BOOLEAN", {"default": False}),
-                "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1}),
-                "include_extension": ("BOOLEAN", {"default": True}),
+                "path": ("STRING", {"default": '', "multiline": False, "tooltip": "Directory containing images to process."}),
+                "image_filter": ("STRING", {"default": '*.*', "multiline": False, "tooltip": "Glob pattern to filter image filenames. Non-image files are always excluded. Examples: portrait_*, 2024-*, *.png"}),
+                "auto_queue": ("BOOLEAN", {"default": False, "tooltip": "Automatically process all images in sequence. Re-queues after each image and stops when done."}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1, "tooltip": "Current position in the batch (read-only, updated automatically)."}),
+                "include_extension": ("BOOLEAN", {"default": True, "tooltip": "Include file extension in the filename output (e.g. photo.png vs photo)."}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -105,18 +105,18 @@ class LoadImageBatch:
     CATEGORY = "Batch Ops"
     OUTPUT_NODE = True
 
-    def load_image(self, path, filename_filter='*',
+    def load_image(self, path, image_filter='*',
                    auto_queue=False, index=0, include_extension=True,
                    unique_id=None):
 
         if not os.path.exists(path):
             raise ValueError(f"Path does not exist: {path}")
 
-        image_paths = get_sorted_image_paths(path, filename_filter)
+        image_paths = get_sorted_image_paths(path, image_filter)
         total = len(image_paths)
 
         if total == 0:
-            raise ValueError(f"No images found in '{path}' matching filter '{filename_filter}'")
+            raise ValueError(f"No images found in '{path}' matching filter '{image_filter}'")
 
         # use node's unique_id as the state key
         state_key = str(unique_id) if unique_id is not None else "default"
@@ -126,7 +126,7 @@ class LoadImageBatch:
         stored = state.get(state_key, {})
 
         # reset if path or filter changed
-        if stored.get('path') != path or stored.get('filename_filter') != filename_filter:
+        if stored.get('path') != path or stored.get('image_filter') != image_filter:
             idx = 0
         else:
             idx = stored.get('index', 0)
@@ -137,7 +137,7 @@ class LoadImageBatch:
 
         # persist next index
         next_idx = (idx + 1) % total
-        state[state_key] = {'path': path, 'filename_filter': filename_filter, 'index': next_idx}
+        state[state_key] = {'path': path, 'image_filter': image_filter, 'index': next_idx}
         _save_state(state)
 
         basename = os.path.basename(image_paths[idx])

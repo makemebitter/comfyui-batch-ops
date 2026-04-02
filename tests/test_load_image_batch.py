@@ -59,7 +59,7 @@ class TestGetSortedImagePaths:
         basenames = [os.path.basename(p) for p in paths]
         assert basenames == sorted(basenames)
 
-    def test_filename_filter(self, image_dir):
+    def test_image_filter(self, image_dir):
         paths = get_sorted_image_paths(image_dir, '*.png')
         basenames = [os.path.basename(p) for p in paths]
         assert all(n.endswith('.png') for n in basenames)
@@ -153,11 +153,11 @@ class TestSequentialBehavior:
 
     def test_resets_on_filter_change(self, image_dir):
         node = LoadImageBatch()
-        node.load_image(image_dir, filename_filter='*', unique_id='11')
-        node.load_image(image_dir, filename_filter='*', unique_id='11')
+        node.load_image(image_dir, image_filter='*', unique_id='11')
+        node.load_image(image_dir, image_filter='*', unique_id='11')
 
         _, _, idx, _ = _result(node.load_image(
-            image_dir, filename_filter='*.png', unique_id='11'))
+            image_dir, image_filter='*.png', unique_id='11'))
         assert idx == 0
 
     def test_total_images_count(self, image_dir):
@@ -308,13 +308,13 @@ class TestErrorHandling:
     def test_no_matching_filter_raises(self, image_dir):
         node = LoadImageBatch()
         with pytest.raises(ValueError, match="No images found"):
-            node.load_image(image_dir, filename_filter='*.xyz', unique_id='72')
+            node.load_image(image_dir, image_filter='*.xyz', unique_id='72')
 
 
 class TestIsChanged:
     def test_always_nan(self, image_dir):
         result = LoadImageBatch.IS_CHANGED(
-            path=image_dir, filename_filter='*',
+            path=image_dir, image_filter='*',
             auto_queue=False, index=0, include_extension=True
         )
         assert result != result  # NaN != NaN
