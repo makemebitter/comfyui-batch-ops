@@ -2,6 +2,7 @@ import os
 import re
 import glob
 import json
+import random
 import hashlib
 import numpy as np
 from PIL import Image, ImageOps
@@ -11,6 +12,11 @@ try:
     from server import PromptServer
 except ImportError:
     PromptServer = None
+
+try:
+    import folder_paths
+except ImportError:
+    folder_paths = None
 
 ALLOWED_EXT = ('.jpeg', '.jpg', '.png', '.tiff', '.gif', '.bmp', '.webp')
 
@@ -50,16 +56,28 @@ def _natural_sort_key(path):
     return [int(p) if p.isdigit() else p for p in parts]
 
 
-def get_sorted_image_paths(directory, pattern='*'):
+def get_sorted_image_paths(directory, filename_filter='*'):
     # normpath first so UNC paths (//server/share) are handled correctly
     # by glob.escape (which can mangle raw UNC prefixes)
     directory = os.path.normpath(directory)
     paths = []
-    for file_name in glob.glob(os.path.join(glob.escape(directory), pattern), recursive=True):
+    for file_name in glob.glob(os.path.join(glob.escape(directory), filename_filter), recursive=True):
         if file_name.lower().endswith(ALLOWED_EXT):
             paths.append(os.path.normpath(file_name))
     paths.sort(key=_natural_sort_key)
     return paths
+
+
+def _save_preview_image(img):
+    """Save a PIL image to ComfyUI's temp directory for node preview."""
+    if folder_paths is None:
+        return None
+    temp_dir = folder_paths.get_temp_directory()
+    os.makedirs(temp_dir, exist_ok=True)
+    suffix = ''.join(random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(5))
+    filename = f"batch_ops_preview_{suffix}.png"
+    img.save(os.path.join(temp_dir, filename), compress_level=1)
+    return {"filename": filename, "subfolder": "", "type": "temp"}
 
 
 class LoadImageBatch:
@@ -71,12 +89,10 @@ class LoadImageBatch:
         return {
             "required": {
                 "path": ("STRING", {"default": '', "multiline": False}),
-                "pattern": ("STRING", {"default": '*', "multiline": False}),
-                "mode": (["index", "sequential"],),
-                "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1}),
+                "filename_filter": ("STRING", {"default": '*', "multiline": False}),
                 "batch_id": ("STRING", {"default": 'batch_001', "multiline": False}),
                 "auto_queue": ("BOOLEAN", {"default": False}),
-                "convert_to_rgb": ("BOOLEAN", {"default": True}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1}),
                 "include_extension": ("BOOLEAN", {"default": True}),
             },
             "hidden": {
@@ -90,81 +106,76 @@ class LoadImageBatch:
     CATEGORY = "Batch Ops"
     OUTPUT_NODE = True
 
-    def load_image(self, path, pattern='*', mode='index', index=0, batch_id='batch_001',
-                   auto_queue=False, convert_to_rgb=True, include_extension=True,
+    def load_image(self, path, filename_filter='*', batch_id='batch_001',
+                   auto_queue=False, index=0, include_extension=True,
                    unique_id=None):
 
         if not os.path.exists(path):
             raise ValueError(f"Path does not exist: {path}")
 
-        image_paths = get_sorted_image_paths(path, pattern)
+        image_paths = get_sorted_image_paths(path, filename_filter)
         total = len(image_paths)
 
         if total == 0:
-            raise ValueError(f"No images found in '{path}' matching pattern '{pattern}'")
+            raise ValueError(f"No images found in '{path}' matching filter '{filename_filter}'")
 
-        if mode == 'index':
-            idx = index % total
+        # JSON is always the source of truth
+        state = _load_state()
+        stored = state.get(batch_id, {})
+
+        # reset if path or filter changed
+        if stored.get('path') != path or stored.get('filename_filter') != filename_filter:
+            idx = 0
         else:
-            # sequential mode: restore persisted index
-            state = _load_state()
-            key = batch_id
-            stored = state.get(key, {})
+            idx = stored.get('index', 0)
 
-            # reset if path or pattern changed
-            if stored.get('path') != path or stored.get('pattern') != pattern:
-                idx = 0
-            else:
-                idx = stored.get('index', 0)
+        # wrap around
+        if idx >= total:
+            idx = 0
 
-            # wrap around
-            if idx >= total:
-                idx = 0
+        # persist next index
+        next_idx = (idx + 1) % total
+        state[batch_id] = {'path': path, 'filename_filter': filename_filter, 'index': next_idx}
+        _save_state(state)
 
-            # persist next index
-            next_idx = (idx + 1) % total
-            state[key] = {'path': path, 'pattern': pattern, 'index': next_idx}
-            _save_state(state)
+        basename = os.path.basename(image_paths[idx])
+        status = f"{idx + 1} / {total}  —  {basename}"
+        print(f"[Batch Ops] {batch_id}: {status}")
 
-            print(f"[Batch Ops] {batch_id}: loading {idx + 1}/{total} — {os.path.basename(image_paths[idx])}")
+        # mirror index to widget for display
+        if PromptServer is not None and unique_id is not None:
+            PromptServer.instance.send_sync("batch-ops-node-feedback", {
+                "node_id": unique_id,
+                "widget_name": "index",
+                "type": "int",
+                "value": idx,
+            })
 
-            # auto-queue: mirror index to widget and re-queue if not done
-            if auto_queue and PromptServer is not None:
-                is_last = (idx == total - 1)
-
-                # update index widget to show current position
-                PromptServer.instance.send_sync("batch-ops-node-feedback", {
-                    "node_id": unique_id,
-                    "widget_name": "index",
-                    "type": "int",
-                    "value": idx,
-                })
-
-                if not is_last:
-                    PromptServer.instance.send_sync("batch-ops-add-queue", {})
+        # auto-queue: re-queue if not at the last image
+        if auto_queue and PromptServer is not None:
+            if idx < total - 1:
+                PromptServer.instance.send_sync("batch-ops-add-queue", {})
 
         # load and process image
         img = Image.open(image_paths[idx])
         img = ImageOps.exif_transpose(img)
 
-        if convert_to_rgb:
+        if img.mode == 'RGBA':
             img = img.convert("RGB")
 
-        filename = os.path.basename(image_paths[idx])
+        filename = basename
         if not include_extension:
             filename = os.path.splitext(filename)[0]
 
-        return (pil2tensor(img), filename, idx, total)
+        # build ui output
+        ui = {"text": (status,)}
+        preview = _save_preview_image(img)
+        if preview is not None:
+            ui["images"] = [preview]
+
+        return {"ui": ui, "result": (pil2tensor(img), filename, idx, total)}
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
-        if kwargs['mode'] != 'index':
-            return float("NaN")
-        path = kwargs['path']
-        pattern = kwargs['pattern']
-        image_paths = get_sorted_image_paths(path, pattern)
-        if not image_paths:
-            return float("NaN")
-        total = len(image_paths)
-        idx = kwargs['index'] % total
-        return get_sha256(image_paths[idx])
+        # always re-execute since JSON state drives the index
+        return float("NaN")

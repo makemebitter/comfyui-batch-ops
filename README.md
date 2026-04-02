@@ -4,66 +4,61 @@ A collection of batch operation nodes for [ComfyUI](https://github.com/comfyanon
 
 ## Nodes
 
-### Load Image Batch
+### Image Batch Runner
 
-A redesigned batch image loader with two clean modes, auto-queue support, and resume capability.
+Iterates through images in a directory, one per queue run. Supports auto-queue for fully automated batch processing, and resumes across sessions.
 
 #### Inputs
 
 | Input | Type | Description |
 |---|---|---|
 | `path` | STRING | Directory containing images |
-| `pattern` | STRING | Glob pattern to filter files (default: `*`) |
-| `mode` | ENUM | `index` or `sequential` |
-| `index` | INT | Image index (used in `index` mode, display-only in `sequential`) |
-| `batch_id` | STRING | State key for sequential mode (used in `sequential` mode) |
-| `auto_queue` | BOOLEAN | Automatically process all images (used in `sequential` mode) |
-| `convert_to_rgb` | BOOLEAN | Strip alpha channel (default: true) |
-| `include_extension` | BOOLEAN | Include file extension in filename output (default: true) |
+| `filename_filter` | STRING | Glob pattern to filter filenames (default: `*`). Only image files are loaded regardless of filter. Examples: `portrait_*`, `2024-*`, `*.png` |
+| `batch_id` | STRING | Identifies this batch for state tracking. Different `batch_id`s track position independently |
+| `auto_queue` | BOOLEAN | When enabled, automatically processes all images then stops |
+| `index` | INT | Display-only — shows current position in the batch (read-only, updated automatically) |
+| `include_extension` | BOOLEAN | Include file extension in the filename output |
 
 #### Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `image` | IMAGE | The loaded image |
+| `image` | IMAGE | The loaded image (always RGB) |
 | `filename` | STRING | Filename of the loaded image |
-| `current_index` | INT | Index of the loaded image |
-| `total_images` | INT | Total number of images in the directory |
+| `current_index` | INT | Current position in the batch |
+| `total_images` | INT | Total number of images matched |
 
-#### Modes
+#### On-Node Display
 
-**Index mode** — Load a specific image by index. Use ComfyUI's built-in `control_after_generate` on the index widget to step through images (increment), pick random ones (randomize), or stay fixed.
+The node shows a thumbnail preview and status text (e.g. `3 / 47  —  photo.png`) directly on itself. No need to attach separate preview or text nodes.
 
-**Sequential mode** — Automatically advances through images one per queue run. State is persisted to disk, so you can resume across sessions. Use `batch_id` to track multiple independent batches.
+#### How It Works
 
-**Auto-queue** — Enable `auto_queue` in sequential mode to process every image in the directory automatically. The node re-queues itself after each image and stops when the batch is complete. If the browser disconnects mid-batch, progress is saved and you can resume later.
+Each queue run loads the next image. Position is saved to a JSON file on disk, so progress survives browser crashes, ComfyUI restarts, and workflow reloads.
+
+- **Manual stepping**: Queue each run yourself (or use ComfyUI's auto-queue feature)
+- **Auto-queue**: Toggle `auto_queue` on — the node re-queues itself after each image and stops when all images are processed
+- **Resume**: Close ComfyUI, come back later, queue again — picks up where you left off
+- **Reset**: Change the `path`, `filename_filter`, or `batch_id` to reset position to 0
 
 #### Sorting
 
 Images are sorted using natural sort order (matching Windows Explorer), so `img2.png` comes before `img10.png`.
 
+#### Network Paths
+
+UNC paths (`//server/share/images`) are fully supported.
+
 ## Installation
 
-### Manual
-
-Clone this repository into your ComfyUI `custom_nodes` directory:
+Clone into your ComfyUI `custom_nodes` directory:
 
 ```bash
 cd /path/to/ComfyUI/custom_nodes
 git clone https://github.com/makemebitter/comfyui-batch-ops.git
 ```
 
-Then restart ComfyUI.
-
-### Development (symlink)
-
-```bash
-# Windows (run as administrator)
-mklink /D "C:\path\to\ComfyUI\custom_nodes\comfyui-batch-ops" "C:\path\to\comfyui-batch-ops"
-
-# Linux/macOS
-ln -s /path/to/comfyui-batch-ops /path/to/ComfyUI/custom_nodes/comfyui-batch-ops
-```
+Restart ComfyUI. The node appears under **Batch Ops → Image Batch Runner**.
 
 ## Testing
 
@@ -78,13 +73,11 @@ python -m pytest tests/ -v
 
 1. Install the node pack (see above)
 2. Start ComfyUI
-3. Run the e2e test script:
+3. Run:
 
 ```bash
 python tests/test_e2e.py --comfyui-url http://127.0.0.1:8188 --image-dir /path/to/test/images
 ```
-
-This submits a workflow via ComfyUI's API and verifies the output.
 
 ## License
 

@@ -1,5 +1,5 @@
 """
-E2E test for Load Image Batch node against a running ComfyUI instance.
+E2E test for Image Batch Runner node against a running ComfyUI instance.
 
 Usage:
     python tests/test_e2e.py --comfyui-url http://127.0.0.1:8188 --image-dir /path/to/images
@@ -17,23 +17,20 @@ import sys
 import os
 
 
-def build_workflow(image_dir, mode="index", index=0, batch_id="e2e_test"):
-    """Build a minimal ComfyUI workflow that runs Load Image Batch."""
+def build_workflow(image_dir, batch_id="e2e_test", auto_queue=False):
+    """Build a minimal ComfyUI workflow that runs Image Batch Runner."""
     return {
         "1": {
             "class_type": "BatchOps_LoadImageBatch",
             "inputs": {
                 "path": image_dir,
-                "pattern": "*",
-                "mode": mode,
-                "index": index,
+                "filename_filter": "*",
                 "batch_id": batch_id,
-                "auto_queue": False,
-                "convert_to_rgb": True,
+                "auto_queue": auto_queue,
+                "index": 0,
                 "include_extension": True,
             },
         },
-        # PreviewImage is an output node so the workflow actually executes
         "2": {
             "class_type": "PreviewImage",
             "inputs": {
@@ -72,10 +69,29 @@ def wait_for_completion(base_url, prompt_id, timeout=30):
     raise TimeoutError(f"Prompt {prompt_id} did not complete within {timeout}s")
 
 
-def test_index_mode(base_url, image_dir):
-    """Test loading a specific image by index."""
-    print("[TEST] Index mode... ", end="", flush=True)
-    workflow = build_workflow(image_dir, mode="index", index=0)
+def test_node_registered(base_url):
+    """Check that the node is available in ComfyUI."""
+    print("[TEST] Node registered... ", end="", flush=True)
+    req = urllib.request.Request(f"{base_url}/object_info/BatchOps_LoadImageBatch")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            info = json.loads(resp.read())
+        if "BatchOps_LoadImageBatch" in info:
+            print("PASS")
+            return True
+        else:
+            print("FAIL — node not found in response")
+            return False
+    except urllib.error.HTTPError as e:
+        print(f"FAIL — {e}")
+        return False
+
+
+def test_basic_load(base_url, image_dir):
+    """Test loading an image."""
+    print("[TEST] Basic load... ", end="", flush=True)
+    batch_id = f"e2e_basic_{int(time.time())}"
+    workflow = build_workflow(image_dir, batch_id=batch_id)
     prompt_id = submit_prompt(base_url, workflow)
     result = wait_for_completion(base_url, prompt_id)
 
@@ -88,13 +104,13 @@ def test_index_mode(base_url, image_dir):
     return True
 
 
-def test_sequential_mode(base_url, image_dir):
-    """Test sequential mode advances through images."""
-    print("[TEST] Sequential mode (2 runs)... ", end="", flush=True)
+def test_sequential_advances(base_url, image_dir):
+    """Test that sequential runs advance through images."""
+    print("[TEST] Sequential advances (2 runs)... ", end="", flush=True)
     batch_id = f"e2e_seq_{int(time.time())}"
 
     for i in range(2):
-        workflow = build_workflow(image_dir, mode="sequential", batch_id=batch_id)
+        workflow = build_workflow(image_dir, batch_id=batch_id)
         prompt_id = submit_prompt(base_url, workflow)
         result = wait_for_completion(base_url, prompt_id)
 
@@ -107,37 +123,17 @@ def test_sequential_mode(base_url, image_dir):
     return True
 
 
-def test_node_registered(base_url):
-    """Check that the node is available in ComfyUI."""
-    print("[TEST] Node registered... ", end="", flush=True)
-    req = urllib.request.Request(f"{base_url}/object_info/Load%20Image%20Batch")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            info = json.loads(resp.read())
-        if "BatchOps_LoadImageBatch" in info:
-            print("PASS")
-            return True
-        else:
-            print(f"FAIL — node not found in response")
-            return False
-    except urllib.error.HTTPError as e:
-        print(f"FAIL — {e}")
-        return False
-
-
 def main():
     parser = argparse.ArgumentParser(description="E2E tests for comfyui-batch-ops")
     parser.add_argument("--comfyui-url", default="http://127.0.0.1:8188")
     parser.add_argument("--image-dir", required=True, help="Directory with test images")
     args = parser.parse_args()
 
-    # Normalize path
     image_dir = os.path.abspath(args.image_dir)
     if not os.path.isdir(image_dir):
         print(f"Error: {image_dir} is not a directory")
         sys.exit(1)
 
-    # Check ComfyUI is reachable
     try:
         urllib.request.urlopen(f"{args.comfyui_url}/system_stats")
     except urllib.error.URLError:
@@ -146,8 +142,8 @@ def main():
 
     results = [
         test_node_registered(args.comfyui_url),
-        test_index_mode(args.comfyui_url, image_dir),
-        test_sequential_mode(args.comfyui_url, image_dir),
+        test_basic_load(args.comfyui_url, image_dir),
+        test_sequential_advances(args.comfyui_url, image_dir),
     ]
 
     passed = sum(results)
