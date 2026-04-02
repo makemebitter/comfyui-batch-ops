@@ -90,7 +90,6 @@ class LoadImageBatch:
             "required": {
                 "path": ("STRING", {"default": '', "multiline": False}),
                 "filename_filter": ("STRING", {"default": '*', "multiline": False}),
-                "batch_id": ("STRING", {"default": 'batch_001', "multiline": False}),
                 "auto_queue": ("BOOLEAN", {"default": False}),
                 "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1}),
                 "include_extension": ("BOOLEAN", {"default": True}),
@@ -106,7 +105,7 @@ class LoadImageBatch:
     CATEGORY = "Batch Ops"
     OUTPUT_NODE = True
 
-    def load_image(self, path, filename_filter='*', batch_id='batch_001',
+    def load_image(self, path, filename_filter='*',
                    auto_queue=False, index=0, include_extension=True,
                    unique_id=None):
 
@@ -119,9 +118,12 @@ class LoadImageBatch:
         if total == 0:
             raise ValueError(f"No images found in '{path}' matching filter '{filename_filter}'")
 
+        # use node's unique_id as the state key
+        state_key = str(unique_id) if unique_id is not None else "default"
+
         # JSON is always the source of truth
         state = _load_state()
-        stored = state.get(batch_id, {})
+        stored = state.get(state_key, {})
 
         # reset if path or filter changed
         if stored.get('path') != path or stored.get('filename_filter') != filename_filter:
@@ -135,12 +137,12 @@ class LoadImageBatch:
 
         # persist next index
         next_idx = (idx + 1) % total
-        state[batch_id] = {'path': path, 'filename_filter': filename_filter, 'index': next_idx}
+        state[state_key] = {'path': path, 'filename_filter': filename_filter, 'index': next_idx}
         _save_state(state)
 
         basename = os.path.basename(image_paths[idx])
         status = f"{idx + 1} / {total}  —  {basename}"
-        print(f"[Batch Ops] {batch_id}: {status}")
+        print(f"[Batch Ops] node {state_key}: {status}")
 
         # mirror index to widget for display
         if PromptServer is not None and unique_id is not None:
