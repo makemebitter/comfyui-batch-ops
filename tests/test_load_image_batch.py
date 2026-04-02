@@ -200,14 +200,14 @@ class TestUIOutput:
 
 
 class TestWidgetFeedback:
-    def test_always_sends_index_feedback(self, image_dir):
+    def test_always_sends_progress_feedback(self, image_dir):
         mock_server = MagicMock()
         with patch('nodes.load_image_batch.PromptServer', mock_server):
             node = LoadImageBatch()
             node.load_image(image_dir, unique_id='42')
             calls = mock_server.instance.send_sync.call_args_list
             assert calls[0] == call("batch-ops-node-feedback", {
-                "node_id": "42", "widget_name": "index", "type": "int", "value": 0,
+                "node_id": "42", "widget_name": "progress", "type": "string", "value": "1 / 5",
             })
 
     def test_feedback_advances_with_state(self, image_dir):
@@ -219,7 +219,7 @@ class TestWidgetFeedback:
             node.load_image(image_dir, unique_id='42')
             calls = mock_server.instance.send_sync.call_args_list
             assert calls[0] == call("batch-ops-node-feedback", {
-                "node_id": "42", "widget_name": "index", "type": "int", "value": 1,
+                "node_id": "42", "widget_name": "progress", "type": "string", "value": "2 / 5",
             })
 
 
@@ -315,6 +315,6 @@ class TestIsChanged:
     def test_always_nan(self, image_dir):
         result = LoadImageBatch.IS_CHANGED(
             path=image_dir, image_filter='*',
-            auto_queue=False, index=0, include_extension=True
+            auto_queue=False, progress='', include_extension=True
         )
         assert result != result  # NaN != NaN

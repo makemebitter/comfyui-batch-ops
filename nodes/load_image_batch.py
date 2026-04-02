@@ -91,7 +91,7 @@ class LoadImageBatch:
                 "path": ("STRING", {"default": '', "multiline": False, "tooltip": "Directory containing images to process."}),
                 "image_filter": ("STRING", {"default": '*.*', "multiline": False, "tooltip": "Glob pattern to filter image filenames. Non-image files are always excluded. Examples: portrait_*, 2024-*, *.png"}),
                 "auto_queue": ("BOOLEAN", {"default": False, "tooltip": "Automatically process all images in sequence. Re-queues after each image and stops when done."}),
-                "index": ("INT", {"default": 0, "min": 0, "max": 150000, "step": 1, "tooltip": "Current position in the batch (read-only, updated automatically)."}),
+                "progress": ("STRING", {"default": '', "multiline": False, "tooltip": "Current position in the batch (read-only, updated automatically)."}),
                 "include_extension": ("BOOLEAN", {"default": True, "tooltip": "Include file extension in the filename output (e.g. photo.png vs photo)."}),
             },
             "hidden": {
@@ -106,7 +106,7 @@ class LoadImageBatch:
     OUTPUT_NODE = True
 
     def load_image(self, path, image_filter='*',
-                   auto_queue=False, index=0, include_extension=True,
+                   auto_queue=False, progress='', include_extension=True,
                    unique_id=None):
 
         if not os.path.exists(path):
@@ -144,13 +144,13 @@ class LoadImageBatch:
         status = f"{idx + 1} / {total}  —  {basename}"
         print(f"[Batch Ops] node {state_key}: {status}")
 
-        # mirror index to widget for display
+        # mirror progress to widget for display
         if PromptServer is not None and unique_id is not None:
             PromptServer.instance.send_sync("batch-ops-node-feedback", {
                 "node_id": unique_id,
-                "widget_name": "index",
-                "type": "int",
-                "value": idx,
+                "widget_name": "progress",
+                "type": "string",
+                "value": f"{idx + 1} / {total}",
             })
 
         # auto-queue: re-queue if not at the last image
