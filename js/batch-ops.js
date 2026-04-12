@@ -38,5 +38,18 @@ app.registerExtension({
                 };
             }
         }
+
+        // Double-click any output → auto-create PreviewAny and connect
+        node.onOutputDblClick = function (slotIndex, event) {
+            const previewNode = LiteGraph.createNode("PreviewAny");
+            if (!previewNode) return;
+            this.graph.add(previewNode);
+            previewNode.pos = [
+                this.pos[0] + this.size[0] + 30,
+                this.pos[1] + slotIndex * 40,
+            ];
+            this.connect(slotIndex, previewNode, 0);
+            app.graph.setDirtyCanvas(true);
+        };
     },
 });
