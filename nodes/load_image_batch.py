@@ -68,6 +68,33 @@ def get_sorted_image_paths(directory, image_filter='*'):
     return paths
 
 
+def _extract_metadata(img):
+    """Extract generation metadata from image.
+    Supports A1111/SD WebUI ('parameters'), ComfyUI ('prompt'/'workflow'),
+    and other common metadata keys."""
+    info = img.info or {}
+
+    # A1111 / SD WebUI
+    if 'parameters' in info:
+        return info['parameters']
+
+    # ComfyUI
+    parts = []
+    if 'prompt' in info:
+        parts.append(info['prompt'])
+    if 'workflow' in info:
+        parts.append(info['workflow'])
+    if parts:
+        return '\n'.join(parts)
+
+    # NovelAI / other tools store in 'Comment' or 'Description'
+    for key in ('Comment', 'Description', 'UserComment'):
+        if key in info:
+            return info[key]
+
+    return ''
+
+
 def _save_preview_image(img):
     """Save a PIL image to ComfyUI's temp directory for node preview."""
     if folder_paths is None:
@@ -99,8 +126,8 @@ class LoadImageBatch:
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "STRING", "INT", "INT")
-    RETURN_NAMES = ("image", "filename", "current_index", "total_images")
+    RETURN_TYPES = ("IMAGE", "STRING", "INT", "INT", "STRING")
+    RETURN_NAMES = ("image", "filename", "current_index", "total_images", "metadata")
     FUNCTION = "load_image"
     CATEGORY = "Batch Ops"
     OUTPUT_NODE = True
@@ -160,6 +187,10 @@ class LoadImageBatch:
 
         # load and process image
         img = Image.open(image_paths[idx])
+
+        # extract metadata before any conversion
+        metadata = _extract_metadata(img)
+
         img = ImageOps.exif_transpose(img)
 
         if img.mode == 'RGBA':
@@ -175,7 +206,7 @@ class LoadImageBatch:
         if preview is not None:
             ui["images"] = [preview]
 
-        return {"ui": ui, "result": (pil2tensor(img), filename, idx, total)}
+        return {"ui": ui, "result": (pil2tensor(img), filename, idx, total, metadata)}
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):

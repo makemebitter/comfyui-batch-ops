@@ -111,14 +111,14 @@ class TestGetSortedImagePaths:
 class TestSequentialBehavior:
     def test_starts_at_zero(self, image_dir):
         node = LoadImageBatch()
-        _, _, idx, _ = _result(node.load_image(image_dir, unique_id='1'))
+        _, _, idx, _, _ = _result(node.load_image(image_dir, unique_id='1'))
         assert idx == 0
 
     def test_advances_each_call(self, image_dir):
         node = LoadImageBatch()
         indices = []
         for _ in range(5):
-            _, _, idx, _ = _result(node.load_image(image_dir, unique_id='2'))
+            _, _, idx, _, _ = _result(node.load_image(image_dir, unique_id='2'))
             indices.append(idx)
         assert indices == [0, 1, 2, 3, 4]
 
@@ -126,7 +126,7 @@ class TestSequentialBehavior:
         node = LoadImageBatch()
         indices = []
         for _ in range(7):
-            _, _, idx, _ = _result(node.load_image(image_dir, unique_id='3'))
+            _, _, idx, _, _ = _result(node.load_image(image_dir, unique_id='3'))
             indices.append(idx)
         assert indices == [0, 1, 2, 3, 4, 0, 1]
 
@@ -135,7 +135,7 @@ class TestSequentialBehavior:
         node.load_image(image_dir, unique_id='A')
         node.load_image(image_dir, unique_id='A')
 
-        _, _, idx, _ = _result(node.load_image(image_dir, unique_id='B'))
+        _, _, idx, _, _ = _result(node.load_image(image_dir, unique_id='B'))
         assert idx == 0
 
     def test_resets_on_path_change(self, image_dir):
@@ -146,7 +146,7 @@ class TestSequentialBehavior:
         d2 = tempfile.mkdtemp()
         try:
             Image.new('RGB', (32, 32), (0, 0, 0)).save(os.path.join(d2, 'img.png'))
-            _, _, idx, _ = _result(node.load_image(d2, unique_id='10'))
+            _, _, idx, _, _ = _result(node.load_image(d2, unique_id='10'))
             assert idx == 0
         finally:
             shutil.rmtree(d2)
@@ -156,24 +156,24 @@ class TestSequentialBehavior:
         node.load_image(image_dir, image_filter='*', unique_id='11')
         node.load_image(image_dir, image_filter='*', unique_id='11')
 
-        _, _, idx, _ = _result(node.load_image(
+        _, _, idx, _, _ = _result(node.load_image(
             image_dir, image_filter='*.png', unique_id='11'))
         assert idx == 0
 
     def test_total_images_count(self, image_dir):
         node = LoadImageBatch()
-        _, _, _, total = _result(node.load_image(image_dir, unique_id='12'))
+        _, _, _, total, _ = _result(node.load_image(image_dir, unique_id='12'))
         assert total == 5
 
     def test_filename_with_extension(self, image_dir):
         node = LoadImageBatch()
-        _, filename, _, _ = _result(node.load_image(
+        _, filename, _, _, _ = _result(node.load_image(
             image_dir, include_extension=True, unique_id='13'))
         assert '.' in filename
 
     def test_filename_without_extension(self, image_dir):
         node = LoadImageBatch()
-        _, filename, _, _ = _result(node.load_image(
+        _, filename, _, _, _ = _result(node.load_image(
             image_dir, include_extension=False, unique_id='14'))
         assert '.' not in filename
 
@@ -266,14 +266,14 @@ class TestAutoQueue:
 
         with patch('nodes.load_image_batch.PromptServer', None):
             node2 = LoadImageBatch()
-            _, _, idx, _ = _result(node2.load_image(
+            _, _, idx, _, _ = _result(node2.load_image(
                 image_dir, auto_queue=True, unique_id='53'))
             assert idx == 3
 
     def test_no_crash_without_prompt_server(self, image_dir):
         with patch('nodes.load_image_batch.PromptServer', None):
             node = LoadImageBatch()
-            _, _, idx, _ = _result(node.load_image(
+            _, _, idx, _, _ = _result(node.load_image(
                 image_dir, auto_queue=True, unique_id='54'))
             assert idx == 0
 
@@ -281,13 +281,54 @@ class TestAutoQueue:
 class TestRGBAHandling:
     def test_rgba_auto_converted_to_rgb(self, rgba_image_dir):
         node = LoadImageBatch()
-        image, _, _, _ = _result(node.load_image(rgba_image_dir, unique_id='60'))
+        image, _, _, _, _ = _result(node.load_image(rgba_image_dir, unique_id='60'))
         assert image.shape[3] == 3
 
     def test_rgb_stays_rgb(self, image_dir):
         node = LoadImageBatch()
-        image, _, _, _ = _result(node.load_image(image_dir, unique_id='61'))
+        image, _, _, _, _ = _result(node.load_image(image_dir, unique_id='61'))
         assert image.shape[3] == 3
+
+
+class TestMetadata:
+    def test_reads_a1111_parameters(self):
+        """Images with A1111 'parameters' metadata should output it."""
+        d = tempfile.mkdtemp()
+        try:
+            from PIL.PngImagePlugin import PngInfo
+            meta = PngInfo()
+            meta.add_text("parameters", "a cute cat\nSteps: 20, Sampler: Euler")
+            img = Image.new('RGB', (32, 32))
+            img.save(os.path.join(d, 'test.png'), pnginfo=meta)
+
+            node = LoadImageBatch()
+            _, _, _, _, metadata = _result(node.load_image(d, unique_id='80'))
+            assert "a cute cat" in metadata
+            assert "Steps: 20" in metadata
+        finally:
+            shutil.rmtree(d)
+
+    def test_reads_comfyui_prompt(self):
+        """Images with ComfyUI 'prompt' metadata should output it."""
+        d = tempfile.mkdtemp()
+        try:
+            from PIL.PngImagePlugin import PngInfo
+            meta = PngInfo()
+            meta.add_text("prompt", '{"3": {"class_type": "KSampler"}}')
+            img = Image.new('RGB', (32, 32))
+            img.save(os.path.join(d, 'test.png'), pnginfo=meta)
+
+            node = LoadImageBatch()
+            _, _, _, _, metadata = _result(node.load_image(d, unique_id='81'))
+            assert "KSampler" in metadata
+        finally:
+            shutil.rmtree(d)
+
+    def test_no_metadata_returns_empty(self, image_dir):
+        """Plain images without metadata should return empty string."""
+        node = LoadImageBatch()
+        _, _, _, _, metadata = _result(node.load_image(image_dir, unique_id='82'))
+        assert metadata == ''
 
 
 class TestErrorHandling:
