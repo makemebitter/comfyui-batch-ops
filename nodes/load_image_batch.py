@@ -68,29 +68,37 @@ def get_sorted_image_paths(directory, image_filter='*'):
     return paths
 
 
-def _extract_metadata(img):
-    """Extract generation metadata from image.
-    Supports A1111/SD WebUI ('parameters'), ComfyUI ('prompt'/'workflow'),
-    and other common metadata keys."""
+def _extract_prompt(img):
+    """Extract the positive prompt from image metadata.
+    Supports A1111/SD WebUI and ComfyUI formats."""
     info = img.info or {}
 
-    # A1111 / SD WebUI
+    # A1111 / SD WebUI: prompt is everything before "Negative prompt:"
     if 'parameters' in info:
-        return info['parameters']
+        text = info['parameters']
+        neg_idx = text.find('Negative prompt:')
+        if neg_idx != -1:
+            return text[:neg_idx].strip()
+        # No negative prompt — prompt is everything before the first line with "Steps:"
+        for line in text.split('\n'):
+            if line.startswith('Steps:'):
+                return text[:text.index(line)].strip()
+        return text.strip()
 
-    # ComfyUI
-    parts = []
+    # ComfyUI: extract text inputs from CLIPTextEncode nodes in the prompt JSON
     if 'prompt' in info:
-        parts.append(info['prompt'])
-    if 'workflow' in info:
-        parts.append(info['workflow'])
-    if parts:
-        return '\n'.join(parts)
-
-    # NovelAI / other tools store in 'Comment' or 'Description'
-    for key in ('Comment', 'Description', 'UserComment'):
-        if key in info:
-            return info[key]
+        try:
+            prompt_data = json.loads(info['prompt'])
+            for node_data in prompt_data.values():
+                if isinstance(node_data, dict):
+                    class_type = node_data.get('class_type', '')
+                    if 'CLIPTextEncode' in class_type:
+                        inputs = node_data.get('inputs', {})
+                        text = inputs.get('text', '')
+                        if text and isinstance(text, str):
+                            return text.strip()
+        except (json.JSONDecodeError, AttributeError):
+            pass
 
     return ''
 
@@ -127,7 +135,7 @@ class LoadImageBatch:
         }
 
     RETURN_TYPES = ("IMAGE", "STRING", "INT", "INT", "STRING")
-    RETURN_NAMES = ("image", "filename", "current_index", "total_images", "metadata")
+    RETURN_NAMES = ("image", "filename", "current_index", "total_images", "prompt")
     FUNCTION = "load_image"
     CATEGORY = "Batch Ops"
     OUTPUT_NODE = True
@@ -188,8 +196,8 @@ class LoadImageBatch:
         # load and process image
         img = Image.open(image_paths[idx])
 
-        # extract metadata before any conversion
-        metadata = _extract_metadata(img)
+        # extract prompt before any conversion
+        prompt = _extract_prompt(img)
 
         img = ImageOps.exif_transpose(img)
 
@@ -206,7 +214,7 @@ class LoadImageBatch:
         if preview is not None:
             ui["images"] = [preview]
 
-        return {"ui": ui, "result": (pil2tensor(img), filename, idx, total, metadata)}
+        return {"ui": ui, "result": (pil2tensor(img), filename, idx, total, prompt)}
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):

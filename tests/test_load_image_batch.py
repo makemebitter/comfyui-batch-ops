@@ -290,9 +290,28 @@ class TestRGBAHandling:
         assert image.shape[3] == 3
 
 
-class TestMetadata:
-    def test_reads_a1111_parameters(self):
-        """Images with A1111 'parameters' metadata should output it."""
+class TestPromptExtraction:
+    def test_a1111_extracts_prompt_only(self):
+        """Should extract just the prompt, not negative prompt or settings."""
+        d = tempfile.mkdtemp()
+        try:
+            from PIL.PngImagePlugin import PngInfo
+            meta = PngInfo()
+            meta.add_text("parameters",
+                          "a cute cat, masterpiece\nNegative prompt: ugly, bad\nSteps: 20, Sampler: Euler")
+            img = Image.new('RGB', (32, 32))
+            img.save(os.path.join(d, 'test.png'), pnginfo=meta)
+
+            node = LoadImageBatch()
+            _, _, _, _, prompt = _result(node.load_image(d, unique_id='80'))
+            assert prompt == "a cute cat, masterpiece"
+            assert "Negative" not in prompt
+            assert "Steps" not in prompt
+        finally:
+            shutil.rmtree(d)
+
+    def test_a1111_no_negative_prompt(self):
+        """A1111 image with no negative prompt — prompt is everything before Steps."""
         d = tempfile.mkdtemp()
         try:
             from PIL.PngImagePlugin import PngInfo
@@ -302,33 +321,43 @@ class TestMetadata:
             img.save(os.path.join(d, 'test.png'), pnginfo=meta)
 
             node = LoadImageBatch()
-            _, _, _, _, metadata = _result(node.load_image(d, unique_id='80'))
-            assert "a cute cat" in metadata
-            assert "Steps: 20" in metadata
+            _, _, _, _, prompt = _result(node.load_image(d, unique_id='81'))
+            assert prompt == "a cute cat"
         finally:
             shutil.rmtree(d)
 
-    def test_reads_comfyui_prompt(self):
-        """Images with ComfyUI 'prompt' metadata should output it."""
+    def test_comfyui_extracts_text_from_clip_encode(self):
+        """Should extract text from CLIPTextEncode node in ComfyUI prompt JSON."""
         d = tempfile.mkdtemp()
         try:
             from PIL.PngImagePlugin import PngInfo
+            import json
+            prompt_json = json.dumps({
+                "6": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {"text": "a beautiful landscape", "clip": ["4", 0]}
+                },
+                "7": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {"text": "ugly, bad", "clip": ["4", 0]}
+                }
+            })
             meta = PngInfo()
-            meta.add_text("prompt", '{"3": {"class_type": "KSampler"}}')
+            meta.add_text("prompt", prompt_json)
             img = Image.new('RGB', (32, 32))
             img.save(os.path.join(d, 'test.png'), pnginfo=meta)
 
             node = LoadImageBatch()
-            _, _, _, _, metadata = _result(node.load_image(d, unique_id='81'))
-            assert "KSampler" in metadata
+            _, _, _, _, prompt = _result(node.load_image(d, unique_id='82'))
+            assert "a beautiful landscape" in prompt
         finally:
             shutil.rmtree(d)
 
-    def test_no_metadata_returns_empty(self, image_dir):
+    def test_no_prompt_returns_empty(self, image_dir):
         """Plain images without metadata should return empty string."""
         node = LoadImageBatch()
-        _, _, _, _, metadata = _result(node.load_image(image_dir, unique_id='82'))
-        assert metadata == ''
+        _, _, _, _, prompt = _result(node.load_image(image_dir, unique_id='83'))
+        assert prompt == ''
 
 
 class TestErrorHandling:
